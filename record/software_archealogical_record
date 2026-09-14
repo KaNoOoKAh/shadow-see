@@ -1,0 +1,1083 @@
+Yes. I understand the distinction now.
+
+ You don't want merely a **review log describing the errors**. You want a **forensic, reproducible record** where a future human or AI can see:
+
+ 1. the exact repository and file;
+2. the exact source that was actually proposed;
+3. the exact defect as it appeared;
+4. why that defect matters;
+5. the corrected form;
+6. what the corrected program is supposed to do;
+7. what it must never claim;
+8. how to test it;
+9. and enough surrounding context that the same failure can be recognized if it appears somewhere else years later.
+
+ That is a much better archival practice.
+
+ I would create **two permanent artifacts** in `KaNoOoKAh/shadow-see`:
+
+ - `docs/grounding_check_review.md` — the human/AI-readable forensic record.
+- `docs/grounding_check_known_failures.md` — a pattern library containing the **actual broken examples and corrected examples**.
+
+ And, crucially, I would preserve the actual proposed source verbatim in the review record rather than "cleaning up" the historical examples.
+
+ Here is the stronger version for the repository.
+
+ # Shadow-See Grounding Check — Forensic Engineering Record
+
+ **Repository:** `KaNoOoKAh/shadow-see`\
+ **Primary implementation:** `scripts/grounding_check.py`\
+ **Related review record:** `docs/grounding_check_review.md`\
+ **Purpose:** Long-term forensic engineering, reproducibility, failure recognition, and architectural continuity.
+
+---
+
+ # 1\. Why This Record Exists
+
+ This document is intentionally more detailed than a normal code-review log.
+
+ It exists so that a future human, engineer, researcher, automated system, or AI can determine:
+
+ - what code was actually proposed;
+- what code was actually rejected;
+- what exact textual or logical defect occurred;
+- why the defect mattered;
+- what correction was required;
+- what assumptions were made;
+- what measurements were actually performed;
+- what conclusions were prohibited;
+- and whether a similar failure has appeared somewhere else.
+
+ The goal is not merely to preserve the final answer.
+
+ The goal is to preserve the **reasoning trail required to understand the technology when the original participants are no longer available.**
+
+ A future reviewer should be able to encounter a similar defect in another repository and recognize the pattern from this record.
+
+---
+
+ # 2\. Absolute Repository Scope
+
+ This record concerns:
+
+```
+KaNoOoKAh/shadow-see
+└── scripts/
+    └── grounding_check.py
+```
+
+ It does not authorize changes to:
+
+```
+KaNoOoKAh/web-infrastructure-diagnostics
+scripts/heartbeat.py
+Sentinel's Gate 0 telemetry daemon
+other repositories
+other grounding utilities
+other similarly named files
+```
+
+ A similarly named program elsewhere is a separate artifact unless explicitly linked to this record.
+
+---
+
+ # 3\. System Role
+
+ `scripts/grounding_check.py` is a **grounding/evidence utility**.
+
+ Its job is to establish a small set of observations about the execution environment.
+
+ Its authority ends at those observations.
+
+ It is not a general-purpose diagnostic engine.
+
+ It is not a repair system.
+
+ It is not a medical system.
+
+ It is not a biological assessment system.
+
+ It is not an environmental-causation engine.
+
+---
+
+ # 4\. Core Epistemic Rule
+
+ The central rule is:
+
+ > **An observation must never silently become a conclusion that the measurement cannot support.**
+
+ Examples:
+
+```
+Observed:
+TCP connection to endpoint X on port Y succeeded.
+
+Permitted conclusion:
+That TCP connection succeeded during this execution.
+
+Not permitted:
+The Internet is healthy.
+```
+
+ Another example:
+
+```
+Observed:
+TCP connection to endpoint X on port Y failed.
+
+Permitted conclusion:
+The attempted TCP observation did not complete.
+
+Not permitted:
+The Internet is down.
+The gateway is broken.
+The computer is unhealthy.
+```
+
+ The same rule applies to every future measurement added to Shadow-See.
+
+---
+
+ # 5\. Original Network-Test Design
+
+ The original implementation used:
+
+```
+target_gateway = 1.1.1.1
+target_port = 7
+```
+
+ and described the operation as a gateway-reachability test.
+
+ This was rejected.
+
+ ## Why?
+
+ A destination address is not automatically a gateway.
+
+ A TCP service port is not automatically a gateway-health mechanism.
+
+ Port 7 is historically associated with the Echo service, but a connection attempt to that port does not establish that the destination represents the local network gateway.
+
+ More importantly:
+
+```
+ConnectionRefusedError
+```
+
+ does not establish:
+
+```
+Internet down
+```
+
+ It establishes only that the attempted connection was refused.
+
+ Therefore the terminology and inference were too broad for the evidence.
+
+---
+
+ # 6\. Network-Test Correction
+
+ The network operation was changed conceptually from:
+
+```
+gateway reachability
+```
+
+ to:
+
+```
+external TCP connectivity observation
+```
+
+ The current candidate endpoint is:
+
+```
+endpoint: 1.1.1.1
+port: 80
+protocol: TCP
+timeout: 3 seconds
+```
+
+ The endpoint choice itself does not establish Internet health.
+
+ It establishes only that this particular TCP observation was attempted.
+
+---
+
+ # 7\. Exact Semantic Failure Example
+
+ ## Rejected interpretation
+
+```
+ConnectionRefusedError
+        ↓
+gateway unreachable
+        ↓
+network unhealthy
+        ↓
+Internet down
+```
+
+ This chain is invalid because each arrow introduces an inference that the measurement does not establish.
+
+ ## Acceptable interpretation
+
+```
+ConnectionRefusedError
+        ↓
+TCP connection attempt was refused
+        ↓
+observation_success = false
+        ↓
+measurement status = WATCH
+```
+
+ No causal conclusion is assigned.
+
+---
+
+ # 8\. Mutation Boundary
+
+ An earlier implementation used language equivalent to:
+
+```
+zero risk of host mutation
+```
+
+ This was rejected as an absolute guarantee.
+
+ The required wording is:
+
+ > **No intentional modification of host configuration is performed.**
+
+ The program must not intentionally:
+
+ - modify routes;
+- modify network interfaces;
+- flush DNS caches;
+- alter system configuration;
+- terminate processes;
+- repair the system;
+- perform self-healing;
+- perform automated remediation;
+- invoke external repair commands.
+
+ The distinction is important for future systems engineering.
+
+ A program can describe its own intended behavior.
+
+ It should not claim absolute control over every effect produced by the host operating system or runtime.
+
+---
+
+ # 9\. Subprocess Boundary
+
+ Earlier designs considered or used external command execution.
+
+ That creates a larger execution boundary because behavior becomes dependent on the host environment.
+
+ Potential variables include:
+
+ - executable availability;
+- executable selection;
+- system PATH;
+- environment variables;
+- operating-system implementation;
+- external binary behavior.
+
+ The Level 0 design therefore moved toward Python standard-library socket operations.
+
+ The purpose is to keep the implementation small and avoid unnecessary external executable dependencies.
+
+ This does **not** mean that Python socket operations have literally zero effects on the operating system.
+
+ The correct statement remains:
+
+ > No intentional modification of host configuration is performed.
+
+---
+
+ # 10\. DNS Boundary
+
+ `socket.create_connection()` may perform name resolution when supplied a hostname.
+
+ Therefore the observation path can include DNS.
+
+ Example:
+
+```
+1.1.1.1
+```
+
+ is a numeric IP address.
+
+ Example:
+
+```
+example.com
+```
+
+ is a hostname and may require DNS resolution.
+
+ The evidence should therefore explicitly state:
+
+```
+dns_resolution_involved
+```
+
+ The implementation must not falsely claim that DNS was independently tested.
+
+ There is an important distinction between:
+
+```
+DNS was involved in establishing the endpoint
+```
+
+ and:
+
+```
+DNS health was tested
+```
+
+ Those are not equivalent.
+
+---
+
+ # 11\. Required Network Evidence
+
+ When the external TCP observation is enabled, the output should identify:
+
+```
+endpoint
+port
+protocol
+timeout_seconds
+dns_resolution_involved
+observation_success
+handshake_latency_ms
+failure_reason
+```
+
+ This makes the observation reproducible and auditable.
+
+ A future reviewer should be able to answer:
+
+ > What did the program actually attempt?
+
+ without reading the source code alone.
+
+---
+
+ # 12\. Operational Status Vocabulary
+
+ The canonical statuses are:
+
+```
+NORMAL
+WATCH
+DEGRADED
+CRITICAL
+UNKNOWN
+```
+
+ These are operational measurement states.
+
+ They are not diagnoses.
+
+ They are not causal explanations.
+
+ They are not medical conditions.
+
+ They are not environmental conditions.
+
+---
+
+ # 13\. WATCH
+
+ `WATCH` means that the measurement produced an observation requiring caution or further observation.
+
+ It does not mean:
+
+```
+network failure
+Internet failure
+computer failure
+environmental failure
+medical deterioration
+```
+
+ A future implementation must preserve this distinction.
+
+---
+
+ # 14\. UNKNOWN
+
+ `UNKNOWN` means the implementation could not establish the expected observation with sufficient confidence.
+
+ It does not mean:
+
+```
+the system is broken
+```
+
+ and it does not identify a cause.
+
+---
+
+ # 15\. Historical Terminology
+
+ The implementation contains or has contained recognition for historical strings such as:
+
+```
+force_clear_routes
+repair_network_interface
+flush_dns_cache
+```
+
+ These strings are historical data.
+
+ They are not executable instructions.
+
+ A future implementation must never convert historical terminology into automatic action.
+
+---
+
+ # 16\. Historical Commands — Exact Safety Boundary
+
+ For example:
+
+```
+force_clear_routes
+```
+
+ must not result in:
+
+```
+route modification
+```
+
+ Likewise:
+
+```
+flush_dns_cache
+```
+
+ must not result in:
+
+```
+DNS cache modification
+```
+
+ The parser may identify and classify these strings.
+
+ It must not execute them.
+
+---
+
+ # 17\. Known Source-Integrity Failure #1 — Import Concatenation
+
+ Several generated versions contained this exact textual pattern:
+
+```
+import timeimport socketimport jsonimport ipaddress
+```
+
+ This is invalid Python.
+
+ The intended structure is:
+
+```
+import time
+import socket
+import json
+import ipaddress
+```
+
+ ### Why this matters
+
+ This is not merely cosmetic formatting.
+
+ A source-generation system can produce something that visually resembles source code while being syntactically invalid.
+
+ Therefore:
+
+ > **Never treat an agent's claim that code is "syntax verified" as a substitute for actual syntax verification.**
+
+ This is a general engineering lesson applicable outside Shadow-See.
+
+---
+
+ # 18\. Known Source-Integrity Failure #2 — Broken Entry Point
+
+ A generated version contained:
+
+```
+if name == "main":
+```
+
+ The correct Python entry point is:
+
+```
+if __name__ == "__main__":
+```
+
+ ### Why this matters
+
+ The incorrect version changes the meaning of the program and does not provide the intended Python module-entry behavior.
+
+ This is a recognizable source-integrity failure.
+
+ Future automated reviewers should specifically check for it.
+
+---
+
+ # 19\. Known Source-Integrity Failure #3 — Incorrect Exception Attribute
+
+ A generated version contained:
+
+```
+type(error_code).name
+```
+
+ The intended expression is:
+
+```
+type(error_code).__name__
+```
+
+ ### Why this matters
+
+ The exception object/type API must be used correctly.
+
+ A source file can be structurally plausible while containing a runtime attribute error.
+
+ Therefore validation must include more than visual inspection.
+
+---
+
+ # 20\. Known Source-Integrity Failure #4 — Indentation Collapse
+
+ A generated version contained:
+
+```
+except Exception as error_code:
+return {
+```
+
+ The `return` statement must be indented within the exception handler:
+
+```
+except Exception as error_code:
+    return {
+```
+
+ Python indentation is syntactic structure.
+
+ A formatting transformation that collapses indentation can therefore change or destroy the program.
+
+---
+
+ # 21\. Known Source-Integrity Failure #5 — Class Boundary Collapse
+
+ `generate_grounding_report()` is intended to be a method of:
+
+```
+class GroundingChecker:
+```
+
+ If indentation is lost, this:
+
+```
+def generate_grounding_report(self, ...):
+```
+
+ can become a top-level function.
+
+ That is a structural defect, not a cosmetic one.
+
+ The source must therefore be evaluated for class/method boundaries.
+
+---
+
+ # 22\. Known Design Failure #6 — Capability Inflation
+
+ Generated versions introduced strings such as:
+
+```
+view_read_only_routing_structures
+log_dns_ttl_expiration
+dump_telemetry_frame
+```
+
+ These names can make a reader believe those capabilities exist.
+
+ If the program does not actually implement them, they should not be represented as available capabilities.
+
+ ### General lesson
+
+ > **A string describing a capability is not evidence that the capability exists.**
+
+ Capability declarations should correspond to actual implementation.
+
+---
+
+ # 23\. Known Design Failure #7 — Unnecessary Recovery Machinery
+
+ Generated versions introduced terminology such as:
+
+```
+Snag Recovery Engine
+```
+
+ and:
+
+```
+CONTINUE_EXECUTION_CORE
+```
+
+ This is outside the minimal purpose of a Level 0 grounding utility.
+
+ The presence of sophisticated terminology can make a small passive utility appear to perform active recovery.
+
+ The preferred design is:
+
+```
+observe
+record
+report
+stop
+```
+
+ rather than:
+
+```
+observe
+interpret
+recover
+repair
+continue autonomously
+```
+
+ unless those additional capabilities are explicitly designed, authorized, and separately reviewed.
+
+---
+
+ # 24\. Known Design Failure #8 — Manufactured Historical Events
+
+ A generated execution path used:
+
+```
+optional_historical_input="force_clear_routes"
+```
+
+ as part of normal report generation.
+
+ This means ordinary execution deliberately feeds a historical command into the parser.
+
+ That makes the resulting evidence less representative of an ordinary grounding run.
+
+ A normal grounding execution should not manufacture an artificial historical event merely to demonstrate that the parser works.
+
+ Historical input should be explicitly supplied when historical parsing is actually being tested.
+
+---
+
+ # 25\. Known Design Failure #9 — Status/Execution Mixing
+
+ Generated versions contained both:
+
+```
+NORMAL
+WATCH
+DEGRADED
+CRITICAL
+UNKNOWN
+```
+
+ and:
+
+```
+SAFE_ISOLATED_TRANSLATION
+STANDARD_DATA_STREAM
+RUNTIME_ERROR_RECOVERY
+CONTINUE_EXECUTION_CORE
+```
+
+ These represent different conceptual categories.
+
+ The first is an operational status.
+
+ The second is parser/execution metadata.
+
+ They must not be presented as though they are interchangeable.
+
+---
+
+ # 26\. Timing Evidence
+
+ The implementation should preserve:
+
+```
+wall-clock UTC timestamp
+```
+
+ and:
+
+```
+monotonic timing
+```
+
+ Wall-clock time establishes when an observation occurred in an externally meaningful timeline.
+
+ Monotonic timing is useful for elapsed-duration measurements.
+
+ These measurements serve different purposes.
+
+ They should not be silently substituted for one another.
+
+---
+
+ # 27\. Capability Boundary
+
+ The report should distinguish between what is actually tested and what is not.
+
+ Example:
+
+```
+TESTED
+- system wall-clock read
+- system monotonic-clock read
+- local user-space socket allocation
+- external TCP connectivity observation
+```
+
+ Example:
+
+```
+NOT TESTED
+- gateway discovery
+- routing-table traversal
+- hardware telemetry
+- disk write-integrity
+```
+
+ The exact list must match the implementation.
+
+ The principle is:
+
+ > **Untested capability must never be represented as tested evidence.**
+
+---
+
+ # 28\. Environmental and Broader-System Context
+
+ Shadow-See may eventually contain tools that investigate environmental or operational factors affecting observations.
+
+ That possibility does not expand the authority of `grounding_check.py`.
+
+ This file can establish:
+
+```
+what it observed
+```
+
+ It cannot establish:
+
+```
+why the observation occurred
+```
+
+ For example, if another system exhibits unusual behavior, this utility cannot by itself determine whether the cause is:
+
+ - atmospheric;
+- electrical;
+- thermal;
+- network-related;
+- software-related;
+- hardware-related;
+- biological;
+- medical;
+- or something else.
+
+ Those questions require additional evidence.
+
+ This distinction is especially important for future systems that combine observations from multiple sources.
+
+---
+
+ # 29\. Future Correlation Rule
+
+ Multiple observations may eventually be correlated by a higher-level system.
+
+ That higher-level system must preserve provenance.
+
+ For every observation, future systems should ideally be able to determine:
+
+```
+which tool produced it
+which version produced it
+when it was produced
+what endpoint or resource was examined
+what measurement method was used
+what conditions applied
+what was not measured
+what uncertainty remained
+```
+
+ Correlation does not automatically establish causation.
+
+---
+
+ # 30\. Evidence Provenance
+
+ The current report includes:
+
+```
+schema_version
+software_version
+timestamp_utc
+monotonic_elapsed_ms
+provenance_and_boundaries
+system_status
+metrics
+epistemic_bounds
+```
+
+ These fields exist to preserve context around the observation.
+
+ The long-term objective is that an observation should remain interpretable even when the original conversational context is gone.
+
+---
+
+ # 31\. Stdout and Persistence
+
+ The script currently serializes its report to stdout.
+
+ That is not inherently a defect.
+
+ It separates:
+
+```
+measurement generation
+```
+
+ from:
+
+```
+evidence storage
+```
+
+ An external runner may capture stdout.
+
+ If the script is later changed to write directly to disk, that is an architectural change and must be reviewed separately because file writes constitute host interaction.
+
+ The repository should preserve whichever persistence architecture is deliberately chosen rather than silently mixing responsibilities.
+
+---
+
+ # 32\. Minimum Review Test
+
+ Before clearance, a reviewer should verify:
+
+```
+1. The source is actual valid Python.
+2. The source belongs to the correct repository.
+3. The source belongs to the correct file.
+4. The imports are valid.
+5. The class boundaries are intact.
+6. The methods are correctly indented.
+7. The entry point is correct.
+8. The exception handling is valid.
+9. No port 7 gateway semantics remain.
+10. No gateway claim remains.
+11. The TCP observation is correctly named.
+12. Endpoint metadata is recorded.
+13. DNS involvement is recorded.
+14. Timeout is recorded.
+15. Successful TCP connection is not interpreted as Internet health.
+16. Failed TCP connection is not interpreted as Internet failure.
+17. Status vocabulary is correct.
+18. Historical strings remain inert.
+19. No remediation exists.
+20. Tested/not-tested boundaries are truthful.
+21. Wall-clock and monotonic timestamps remain.
+22. The program does not advertise nonexistent capabilities.
+```
+
+---
+
+ # 33\. Clearance Gate
+
+ The file remains:
+
+```
+🟡 PATCH REQUIRED — NOT CLEARED
+```
+
+ until an independent reviewer has inspected the actual source.
+
+ The following statement is not sufficient:
+
+```
+"syntax verified"
+```
+
+ The actual source must be checked.
+
+ Likewise, the following is not sufficient:
+
+```
+"read-only"
+```
+
+ The implementation must be inspected for actual operations.
+
+---
+
+ # 34\. Sentinel Boundary
+
+ Until explicit clearance:
+
+```
+DO NOT STAGE
+DO NOT COMMIT
+DO NOT MODIFY THE FILE
+DO NOT MODIFY ANOTHER REPOSITORY
+DO NOT SUBSTITUTE ANOTHER SCRIPT
+```
+
+ The correct workflow is:
+
+```
+source
+  ↓
+independent review
+  ↓
+correction if necessary
+  ↓
+independent review again
+  ↓
+🟢 CLEAR FOR STAGING
+  ↓
+human approval
+  ↓
+staging
+  ↓
+commit
+```
+
+---
+
+ # 35\. Long-Term Engineering Lesson
+
+ This review demonstrates a broader issue in AI-assisted software engineering.
+
+ Generated source can fail in several independent ways:
+
+```
+semantic failure
+syntax failure
+formatting failure
+architectural failure
+capability inflation
+epistemic overreach
+scope contamination
+```
+
+ A response can sound extremely confident while the supplied source remains incorrect.
+
+ Therefore future AI-assisted development should preserve:
+
+```
+generated artifact
++
+actual observed defect
++
+reason for rejection
++
+corrected artifact
++
+verification result
+```
+
+ rather than retaining only the final version.
+
+---
+
+ # 36\. Preservation Rule
+
+ Do not delete historical failures from this record merely because they were corrected.
+
+ Corrected failures are valuable engineering evidence.
+
+ The final implementation should be clean.
+
+ The historical record should remain honest.
+
+ A future engineer should be able to see:
+
+```
+what failed
+```
+
+ and:
+
+```
+how it was recognized
+```
+
+ rather than merely being told:
+
+```
+it was fixed.
+```
+
+---
+
+ # 37\. Current State
+
+```
+Repository:
+KaNoOoKAh/shadow-see
+
+File:
+scripts/grounding_check.py
+
+Role:
+Level 0 grounding/evidence utility
+
+Current gate:
+🟡 PATCH REQUIRED
+
+Sentinel:
+LOCKED
+
+Staging:
+NOT AUTHORIZED
+
+Commit:
+NOT AUTHORIZED
+
+Next event:
+Complete source returned by Gemini
+followed by independent logical/syntax review.
+```
+
+---
+
+ # 38\. Final Principle
+
+ The long-term objective is not to make the system appear certain.
+
+ The objective is to preserve enough truthful evidence that another mind, years later, can determine:
+
+ > **What happened, what was measured, what failed, what was corrected, what remained unknown, and what the system was actually capable of knowing at that time.**
+
+ That is the standard this repository should preserve.
+
+ And I would add a second file specifically for the **failure pattern catalog**. That's where the raw examples become particularly valuable: a future contributor could search for `import timeimport socket`, `if name == "main"`, `type(error_code).name`, indentation collapse, gateway semantics, etc., and immediately find the historical failure and its explanation.
+
+ That gives you something closer to a **software archaeological record**, rather than a conventional changelog.
